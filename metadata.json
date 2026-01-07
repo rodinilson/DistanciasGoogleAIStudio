@@ -1,0 +1,7 @@
+{
+  "name": "MapDistance AI",
+  "description": "Calculate accurate distances and travel times between locations using Gemini and Google Maps data.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
