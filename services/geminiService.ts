@@ -17,40 +17,37 @@ export const calculateDistance = async (
     }
   } : undefined;
 
-  // Added a more explicit prompt and used both Maps and Search for better results.
-  const prompt = `Você é um especialista em rotas e geografia. 
-  Calcule a distância e o tempo de viagem entre a origem: "${info.origin}" e o destino: "${info.destination}".
-  
-  REGRAS:
-  1. Forneça a distância exata ou estimada em quilômetros.
-  2. Informe o tempo médio de viagem (carro, ônibus, etc).
-  3. Descreva brevemente a principal rodovia ou rota.
-  4. Responda obrigatoriamente em Português do Brasil.
-  5. Se não encontrar dados exatos, forneça uma estimativa baseada em seu conhecimento geográfico.`;
+  // Prompt strict for the requested format
+  const prompt = `Calcule a distância rodoviária entre "${info.origin}" e "${info.destination}".
+  Sua resposta deve ser EXTREMAMENTE concisa.
+  FORMATO OBRIGATÓRIO: "Total KM: [número]"
+  Não escreva mais nada além disso. Não adicione explicações.`;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: {
-        // Using both tools as allowed by the guidelines for Maps grounding.
-        tools: [{ googleMaps: {} }, { googleSearch: {} }],
+        tools: [{ googleMaps: {} }],
         toolConfig: toolConfig,
-        temperature: 0.7,
+        temperature: 0, // Zero temperature for maximum precision and conciseness
       },
     });
 
-    // Check all parts for text if the getter fails
-    let text = response.text;
-    if (!text && response.candidates?.[0]?.content?.parts) {
+    let text = "";
+    if (response.candidates?.[0]?.content?.parts) {
       text = response.candidates[0].content.parts
-        .map(part => part.text)
-        .filter(t => t)
-        .join("\n");
+        .map(part => part.text || "")
+        .join("")
+        .trim();
     }
 
-    if (!text) {
-      text = "Não foi possível gerar um resumo textual, mas verifique as fontes abaixo para mais detalhes no mapa.";
+    // Attempt to clean up in case the model ignored instructions and added more text
+    const match = text.match(/Total KM:\s*(\d+([.,]\d+)?)/i);
+    if (match) {
+      text = match[0];
+    } else if (!text || text.length === 0) {
+      text = "Não foi possível calcular a distância exata.";
     }
     
     const sources: GroundingSource[] = [];
@@ -60,13 +57,8 @@ export const calculateDistance = async (
       chunks.forEach((chunk: any) => {
         if (chunk.maps) {
           sources.push({
-            title: chunk.maps.title || "Localização no Google Maps",
+            title: chunk.maps.title || "Localização no Maps",
             uri: chunk.maps.uri
-          });
-        } else if (chunk.web) {
-          sources.push({
-            title: chunk.web.title || "Fonte Web",
-            uri: chunk.web.uri
           });
         }
       });
@@ -74,13 +66,7 @@ export const calculateDistance = async (
 
     return { text, sources };
   } catch (error: any) {
-    console.error("Gemini API Error details:", error);
-    const errorMessage = error?.message || "";
-    
-    if (errorMessage.includes("404") || errorMessage.includes("not found")) {
-      throw new Error("O modelo de IA não foi encontrado. Por favor, tente novamente mais tarde.");
-    }
-    
-    throw new Error("Erro ao calcular a distância. Verifique sua conexão ou tente outros nomes de cidades.");
+    console.error("Gemini API Error:", error);
+    throw new Error("Erro ao consultar a rota. Tente novamente.");
   }
 };
